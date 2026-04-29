@@ -72,6 +72,32 @@ def format_context(docs):
     return "\n\n".join(parts)
 
 
+def pretty_timestamp(url):
+    # source urls look like https://karpathy.ai/lexicap/0045-large.html#00:58:47.360
+    # the karpathy site is dead now, but the fragment still tells us where in
+    # the episode we are
+    import urllib.parse as u
+    frag = u.urlparse(url).fragment
+    if not frag:
+        return None
+    # trim milliseconds and leading zero hour
+    parts = frag.split('.')[0].split(':')
+    if len(parts) == 3 and parts[0] == '00':
+        return ':'.join(parts[1:])
+    return ':'.join(parts)
+
+
+def search_link(episode, timestamp):
+    # the karpathy lexicap pages are gone, so just point at a google search
+    # for the episode + timestamp (lands on the episode's youtube video or
+    # the official transcript on lexfridman.com)
+    import urllib.parse as u
+    q = f'"Lex Fridman Podcast" {episode}'
+    if timestamp:
+        q += f' {timestamp}'
+    return 'https://www.google.com/search?q=' + u.quote_plus(q)
+
+
 def answer(question, retriever, llm):
     docs = retriever.invoke(question)
     ctx = format_context(docs)
@@ -111,13 +137,20 @@ if "messages" not in st.session_state:
 retriever = get_retriever()
 llm = get_llm()
 
+def render_sources(srcs):
+    for s in srcs:
+        ts = s.get("timestamp")
+        link = s.get("search_url", "")
+        ts_str = f" @ {ts}" if ts else ""
+        st.markdown(f"- **{s['episode']}**{ts_str} - [find episode]({link})")
+
+
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
         if m.get("sources"):
             with st.expander("Sources"):
-                for s in m["sources"]:
-                    st.markdown(f"- **{s['episode']}** - [transcript link]({s['url']})")
+                render_sources(m["sources"])
 
 q = st.chat_input("Ask something about the podcast...")
 if q:
@@ -129,13 +162,17 @@ if q:
         with st.spinner("thinking..."):
             text, docs = answer(q, retriever, llm)
         st.markdown(text)
-        srcs = [
-            {"episode": d.metadata.get("episode", "?"), "url": d.metadata.get("source_url", "")}
-            for d in docs
-        ]
+        srcs = []
+        for d in docs:
+            ep = d.metadata.get("episode", "?")
+            ts = pretty_timestamp(d.metadata.get("source_url", ""))
+            srcs.append({
+                "episode": ep,
+                "timestamp": ts,
+                "search_url": search_link(ep, ts),
+            })
         with st.expander("Sources"):
-            for s in srcs:
-                st.markdown(f"- **{s['episode']}** - [transcript link]({s['url']})")
+            render_sources(srcs)
 
     st.session_state.messages.append(
         {"role": "assistant", "content": text, "sources": srcs}
