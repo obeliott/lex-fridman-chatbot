@@ -1,4 +1,8 @@
 import os
+# fall back to the pure-python protobuf parser so chromadb's opentelemetry
+# imports don't choke on the older _pb2 files (cloud uses protobuf 7+)
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
+
 from pathlib import Path
 
 import streamlit as st
